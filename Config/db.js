@@ -5,7 +5,7 @@ const db = mysql.createConnection({
     host: 'localhost',     // MySQL host (default for XAMPP is localhost)
     user: 'root',          // MySQL user (default for XAMPP is 'root')
     password: '',          // MySQL password (default for XAMPP is an empty string)
-    database: 'db_thesis' // Replace with your database name
+    database: 'db_project_bangon' // Replace with your database name
 });
 
 // Connect to the MySQL database

@@ -1,3 +1,5 @@
+// server.js
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const fileUpload = require("express-fileupload");
@@ -14,22 +16,41 @@ const graphRoutes = require("./Routes/Graph/graphRoutes");
 const farmersProfileRoutes = require("./Routes/Farmers/FarmersProfileRoutes");
 const farmerLoginRoutes = require("./Routes/Login/loginFarmerRoutes");
 const calamityRoutes = require("./Routes/Calamity/calamityRoutes");
-const manageCalamityRoutes = require("./Routes/Calamity/managecalamityRoutes"); // ✅ keep this
-// ⛔ remove the stray 'q' line here
+const manageCalamityRoutes = require("./Routes/Calamity/managecalamityRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+/* ----------------------------- MIDDLEWARES -------------------------- */
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload({ createParentPath: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Static
-app.use("/uploads", express.static("uploads"));
+// Increase upload limits for photos/videos
+app.use(
+  fileUpload({
+    createParentPath: true,
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+    abortOnLimit: true,
+  })
+);
 
-// Mount routers
+// Static serving for uploads
+const UPLOADS_DIR = path.join(__dirname, "uploads"); // absolute
+app.use(
+  "/uploads",
+  express.static(UPLOADS_DIR, {
+    acceptRanges: true, // video seeking
+    fallthrough: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".mp4")) res.setHeader("Content-Type", "video/mp4");
+      if (filePath.endsWith(".mov")) res.setHeader("Content-Type", "video/quicktime");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    },
+  })
+);
+
+/* ------------------------------- ROUTES ----------------------------- */
 app.use("/", userRoutes);
 app.use("/users", loginRoutes);
 app.use("/manageaccount", manageAccountRoutes);
@@ -40,9 +61,9 @@ app.use("/api/graphs", graphRoutes);
 app.use("/api/farmers", farmersProfileRoutes);
 app.use("/api/farmers", farmerLoginRoutes);
 app.use("/api/calamities", calamityRoutes);
-app.use("/api/managecalamities", manageCalamityRoutes); // ✅ this now hits the right controller
+app.use("/api/managecalamities", manageCalamityRoutes);
 
-// Error handler
+/* --------------------------- ERROR HANDLER -------------------------- */
 app.use((err, _req, res, _next) => {
   console.error(err.stack);
   res.status(500).json({ error: "Internal Server Error" });
@@ -51,4 +72,3 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
-;

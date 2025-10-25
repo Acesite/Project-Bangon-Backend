@@ -2,28 +2,45 @@
 const express = require("express");
 const router = express.Router();
 
-// use the controller you just updated
+// Keep the name "calamityController" even though it now works with tbl_incident
 const calamityController = require("../../Controllers/Calamity/calamityController");
 
-// GET all calamities (returns `photos: []` and legacy `photo`)
+/**
+ * GET /api/calamities
+ * Optional query params:
+ *   ?type=Flood|Typhoon|...     (maps to incident_type)
+ *   ?status=Pending|Verified|...
+ *   ?since=YYYY-MM-DD
+ */
 router.get("/", calamityController.getAllCalamities);
 
-// GET calamity polygons (GeoJSON)
+/**
+ * GET /api/calamities/polygons
+ * Optional: ?type=Flood|Typhoon|...
+ * Returns GeoJSON FeatureCollection of incident polygons.
+ */
 router.get("/polygons", calamityController.getCalamityPolygons);
 
-// GET calamity types
+/**
+ * GET /api/calamities/types
+ * Returns distinct incident types (as strings).
+ */
 router.get("/types", calamityController.getCalamityTypes);
 
-// GET all ecosystems
+/**
+ * Legacy crop-related endpoints (now stubbed to [] in the controller)
+ * Keeping them so the UI doesn’t error while you transition.
+ */
 router.get("/ecosystems", calamityController.getAllEcosystems);
-
-// GET all crops
 router.get("/crops", calamityController.getAllCrops);
-
-// GET varieties by crop type
 router.get("/crops/:cropTypeId/varieties", calamityController.getVarietiesByCropType);
 
-// POST new calamity (multipart/form-data; field name for multiple files: "photos")
+/**
+ * POST /api/calamities
+ * multipart/form-data with files under field name "photos"
+ * Body (legacy FE keys): calamity_type, description, coordinates, barangay, status, severity_level, affected_area, admin_id, [latitude, longitude]
+ * Writes to tbl_incident and responds with legacy keys.
+ */
 router.post("/", calamityController.addCalamity);
 
 module.exports = router;
