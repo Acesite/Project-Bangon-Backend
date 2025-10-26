@@ -18,6 +18,9 @@ const farmerLoginRoutes = require("./Routes/Login/loginFarmerRoutes");
 const calamityRoutes = require("./Routes/Calamity/calamityRoutes");
 const manageCalamityRoutes = require("./Routes/Calamity/managecalamityRoutes");
 
+// ✅ NEW: calamity graphs (incidents) routes
+const calamityGraphRoutes = require("./Routes/Graph/graphRoutes");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -62,6 +65,9 @@ app.use("/api/farmers", farmersProfileRoutes);
 app.use("/api/farmers", farmerLoginRoutes);
 app.use("/api/calamities", calamityRoutes);
 app.use("/api/managecalamities", manageCalamityRoutes);
+
+// ✅ Mount calamity graphs API (for the recycled graphs UI)
+app.use("/api/cgraph", calamityGraphRoutes);
 
 /* --------------------------- ERROR HANDLER -------------------------- */
 app.use((err, _req, res, _next) => {

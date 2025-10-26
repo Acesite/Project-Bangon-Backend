@@ -66,17 +66,24 @@ function normalizeToUploadsOrHttp(list) {
 
 /* ----------------------------- CONTROLLERS -------------------------- */
 
-// GET /api/calamities
-// Optional filters ?type=&status=&since=YYYY-MM-DD
+/**
+ * GET /api/calamities
+ * Optional filters:
+ *   ?type=Flood
+ *   ?status=Verified
+ *   ?since=YYYY-MM-DD
+ *   ?city=Bacolod City
+ */
 exports.getAllCalamities = (req, res) => {
-  const { type, status, since } = req.query;
+  const { type, status, since, city } = req.query || {};
 
   const where = [];
   const params = [];
 
-  if (type) { where.push("incident_type = ?"); params.push(type); }
-  if (status) { where.push("status = ?"); params.push(status); }
-  if (since) { where.push("date_reported >= ?"); params.push(since); }
+  if (type)  { where.push("incident_type = ?"); params.push(type); }
+  if (status){ where.push("status = ?");        params.push(status); }
+  if (since) { where.push("date_reported >= ?");params.push(since); }
+  if (city)  { where.push("city = ?");          params.push(city); }
 
   const sql = `
     SELECT *
@@ -91,19 +98,28 @@ exports.getAllCalamities = (req, res) => {
     const out = rows.map((r) => {
       const photos = normalizeToUploadsOrHttp(parseJsonishArray(r.photos));
       const videos = normalizeToUploadsOrHttp(parseJsonishArray(r.videos));
+
+      let parsedCoords = null;
+      try {
+        parsedCoords = r.coordinates ? JSON.parse(r.coordinates) : null;
+      } catch {
+        parsedCoords = null;
+      }
+
       return {
-        // legacy-compatible keys for your FE
+        // normalized keys expected by your FE
         calamity_id: r.incident_id,
         admin_id: r.admin_id,
         calamity_type: r.incident_type,
         description: r.description,
         barangay: r.barangay,
+        city: r.city || null,
         status: r.status,
         severity_level: r.severity_level,
         latitude: r.latitude,
         longitude: r.longitude,
-        coordinates: r.coordinates ? JSON.parse(r.coordinates) : null,
-        affected_area: r.area_ha,
+        coordinates: parsedCoords,          // polygon ring [[lng,lat],...]
+        affected_area: r.area_ha,           // decimal(10,2)
         date_reported: r.date_reported,
         photo: photos[0] || null,
         photos,
@@ -115,17 +131,23 @@ exports.getAllCalamities = (req, res) => {
   });
 };
 
-// GET /api/calamities/polygons -> GeoJSON
+/**
+ * GET /api/calamities/polygons -> GeoJSON FeatureCollection
+ * Optional filters:
+ *   ?type=Flood
+ *   ?city=Bacolod City
+ */
 exports.getCalamityPolygons = (req, res) => {
-  const { type } = req.query;
+  const { type, city } = req.query || {};
 
-  const where = ["coordinates IS NOT NULL"];
+  const where = ["coordinates IS NOT NULL", "coordinates <> ''"];
   const params = [];
 
   if (type) { where.push("incident_type = ?"); params.push(type); }
+  if (city) { where.push("city = ?");          params.push(city); }
 
   const sql = `
-    SELECT incident_id AS id, incident_type, barangay, severity_level, coordinates
+    SELECT incident_id AS id, incident_type, barangay, city, severity_level, coordinates
     FROM tbl_incident
     ${where.length ? "WHERE " + where.join(" AND ") : ""}
   `;
@@ -150,6 +172,7 @@ exports.getCalamityPolygons = (req, res) => {
             id: c.id,
             calamity_type: c.incident_type,
             barangay: c.barangay || null,
+            city: c.city || null,
             severity_level: c.severity_level || null,
           },
           geometry: { type: "Polygon", coordinates: [ring] },
@@ -163,7 +186,9 @@ exports.getCalamityPolygons = (req, res) => {
   });
 };
 
-// GET /api/calamities/types
+/**
+ * GET /api/calamities/types
+ */
 exports.getCalamityTypes = (_req, res) => {
   db.query("SELECT DISTINCT incident_type FROM tbl_incident", (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -176,17 +201,20 @@ exports.getAllEcosystems = (_req, res) => res.json([]);
 exports.getAllCrops = (_req, res) => res.json([]);
 exports.getVarietiesByCropType = (_req, res) => res.json([]);
 
-// POST /api/calamities (multipart/form-data)
-// Fields: calamity_type, description, barangay, status, severity_level,
-//         coordinates (JSON polygon ring), affected_area (ha), admin_id,
-//         [latitude, longitude]
-// Files: photos[] (images/videos mixed ok) and/or videos[] (optional)
+/**
+ * POST /api/calamities (multipart/form-data)
+ * Fields: calamity_type, description, barangay, city, status, severity_level,
+ *         coordinates (JSON polygon ring), affected_area (ha), admin_id,
+ *         [latitude, longitude]
+ * Files: photos[] (images/videos mixed ok) and/or videos[] (optional)
+ */
 exports.addCalamity = async (req, res) => {
   try {
     const {
       calamity_type,            // -> incident_type
       description,
       barangay,
+      city,                     // optional string
       status,
       severity_level,
       coordinates,              // JSON string (polygon ring)
@@ -218,8 +246,9 @@ exports.addCalamity = async (req, res) => {
     const lonVal = longitude != null ? Number(longitude) : (typeof lon0 === "number" ? lon0 : 0);
 
     const safeBarangay = (barangay && String(barangay).trim()) || null;
+    const safeCity = (city && String(city).trim()) || null;
 
-    // status/severity validation
+    // status/severity validation (aligned with your ENUMs)
     const ALLOWED_STATUS = new Set(["Pending", "Verified", "Resolved", "Rejected"]);
     const safeStatus = ALLOWED_STATUS.has(String(status)) ? String(status) : "Pending";
 
@@ -267,17 +296,19 @@ exports.addCalamity = async (req, res) => {
     const videosJson = JSON.stringify(videoPaths);
     const areaHa = affected_area != null ? Number(affected_area) : null;
 
+    // INSERT aligned to your tbl_incident columns (see schema screenshot)
     const sql = `
       INSERT INTO tbl_incident
-        (admin_id, incident_type, description, barangay, status, severity_level,
+        (admin_id, incident_type, description, barangay, city, status, severity_level,
          latitude, longitude, coordinates, area_ha, photos, videos, date_reported)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `;
     const params = [
       adminId,
       calamity_type,
       description,
       safeBarangay,
+      safeCity,
       safeStatus,
       safeSeverity,
       latVal,
@@ -304,6 +335,7 @@ exports.addCalamity = async (req, res) => {
         calamity_type,
         description,
         barangay: safeBarangay,
+        city: safeCity,
         status: safeStatus,
         severity_level: safeSeverity,
         latitude: latVal,
